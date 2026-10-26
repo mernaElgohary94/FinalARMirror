@@ -1,0 +1,26 @@
+{
+  "name": "snap-lens-camera",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.1.1",
+    "@snap/camera-kit": "^1.22.0",
+    "@types/qrcode": "^1.5.6",
+    "@vitejs/plugin-react": "latest",
+    "qrcode": "^1.5.4",
+    "react": "latest",
+    "react-dom": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest"
+  }
+}

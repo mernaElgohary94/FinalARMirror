@@ -1,0 +1,16 @@
+:root { color: #fff; background: #000; font-family: Arial, Helvetica, sans-serif; }
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+body { margin: 0; overscroll-behavior: none; background: #000; }
+button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.camera-app { position: relative; isolation: isolate; width: 100vw; height: calc(100vw * 16 / 9); overflow: hidden; background: #111; }
+.camera-preview { display: block; width: 100%; height: 100%; object-fit: cover; background: radial-gradient(circle at 50% 35%, #4b455a, #0b0a11 72%); }
+.hand-tracking-video { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.lens-unmute { position: absolute; z-index: 4; top: 110px; left: 50%; transform: translateX(-50%); border: 0; border-radius: 999px; padding: 14px 22px; color: #fff; background: #171717e6; font-size: 18px; font-weight: 700; }
+.camera-error { position: absolute; z-index: 5; top: 120px; right: 42px; left: 42px; max-width: 720px; margin: auto; padding: 22px; border-radius: 18px; background: #17131dea; box-shadow: 0 10px 30px #0005; text-align: center; }.camera-error p { margin: 0 0 12px; font-size: 18px; line-height: 1.4; }.camera-error button { border: 0; border-radius: 999px; padding: 9px 18px; background: #ffe34b; color: #171306; font-weight: 800; }
+.lens-loading { position: absolute; z-index: 4; top: 50%; left: 50%; display: grid; width: 58px; height: 58px; place-items: center; border-radius: 50%; transform: translate(-50%, -50%); background: #0008; backdrop-filter: blur(6px); }.lens-loading span { width: 28px; height: 28px; border: 3px solid #ffffff55; border-top-color: #fff; border-radius: 50%; animation: lens-spin .8s linear infinite; } @keyframes lens-spin { to { transform: rotate(360deg); } }
+.victory-indicator { position: absolute; z-index: 6; top: 38%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: clamp(48px, 8vw, 120px); font-weight: 700; text-align: center; text-shadow: 0 0 20px #000; pointer-events: none; }
+.capture-countdown { position: absolute; z-index: 7; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fffc00; font-size: clamp(140px, 35vw, 420px); font-weight: 900; line-height: 1; text-shadow: 0 0 40px #000, 0 0 80px #fffc0080; pointer-events: none; }
+.qr-panel { position: absolute; z-index: 8; bottom: 24px; left: 24px; display: grid; justify-items: center; gap: 10px; width: min(360px, calc(100% - 48px)); padding: 16px; border-radius: 20px; color: #111; background: #fffffff2; box-shadow: 0 10px 30px #0008; }.qr-panel p { margin: 0; font-size: 20px; font-weight: 800; }.qr-panel img { display: block; width: 100%; height: auto; image-rendering: pixelated; }.qr-panel span { color: #666; font-size: 14px; }
+@media (max-width: 700px) { .lens-unmute { top: 84px; padding: 10px 14px; font-size: 14px; }.camera-error { top: 90px; right: 16px; left: 16px; padding: 15px; }.camera-error p { font-size: 13px; } }
+@media (min-aspect-ratio: 9 / 16) { .camera-app { width: calc(100vh * 9 / 16); height: 100vh; margin: 0 auto; } }
