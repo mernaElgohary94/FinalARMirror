@@ -9,6 +9,7 @@ import {
 } from '@snap/camera-kit';
 import QRCode from 'qrcode';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+import cameraIcon from './assets/camera.png';
 
 const API_TOKEN = import.meta.env.VITE_SNAP_CAMERA_KIT_API_TOKEN as string | undefined;
 const LENS_GROUP_ID = import.meta.env.VITE_SNAP_LENS_GROUP_ID as string | undefined;
@@ -17,21 +18,34 @@ const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as stri
 const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined;
 const IMGBB_API_KEY = import.meta.env.VITE_IMGBB_API_KEY as string | undefined;
 
-function isVictorySign(landmarks: { x: number; y: number }[]) {
+type Landmark = { x: number; y: number };
+
+function jointAngle(first: Landmark, joint: Landmark, last: Landmark) {
+  const firstVector = { x: first.x - joint.x, y: first.y - joint.y };
+  const lastVector = { x: last.x - joint.x, y: last.y - joint.y };
+  const denominator = Math.hypot(firstVector.x, firstVector.y) * Math.hypot(lastVector.x, lastVector.y);
+  if (!denominator) return 180;
+  const cosine = Math.max(-1, Math.min(1, (firstVector.x * lastVector.x + firstVector.y * lastVector.y) / denominator));
+  return Math.acos(cosine) * (180 / Math.PI);
+}
+
+function isVictorySign(landmarks: Landmark[]) {
   const indexTip = landmarks[8];
   const indexPip = landmarks[6];
-  const indexMcp = landmarks[5];
   const middleTip = landmarks[12];
   const middlePip = landmarks[10];
-  const middleMcp = landmarks[9];
   const ringTip = landmarks[16];
-  const ringMcp = landmarks[13];
+  const ringPip = landmarks[14];
   const pinkyTip = landmarks[20];
-  const pinkyMcp = landmarks[17];
-  return indexTip.y < indexMcp.y - 0.04 && indexTip.y < indexPip.y
-    && middleTip.y < middleMcp.y - 0.04 && middleTip.y < middlePip.y
-    && ringTip.y > ringMcp.y - 0.01 && pinkyTip.y > pinkyMcp.y - 0.01
-    && Math.abs(indexTip.x - middleTip.x) > 0.04;
+  const pinkyPip = landmarks[18];
+  const indexExtended = indexTip.y < indexPip.y - 0.008;
+  const middleExtended = middleTip.y < middlePip.y - 0.008;
+  // An open palm can look like a V sign in vertical landmark checks. Require
+  // both outer fingers to be physically bent at their PIP joints instead.
+  const ringFolded = jointAngle(landmarks[13], ringPip, ringTip) < 145;
+  const pinkyFolded = jointAngle(landmarks[17], pinkyPip, pinkyTip) < 145;
+  const fingersSpread = Math.abs(indexTip.x - middleTip.x) > 0.015;
+  return indexExtended && middleExtended && ringFolded && pinkyFolded && fingersSpread;
 }
 
 async function uploadCapture(imageData: string) {
@@ -60,6 +74,8 @@ export default function App() {
   const sessionRef = useRef<CameraKitSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const victoryStartRef = useRef<number | null>(null);
+  const victoryLastSeenRef = useRef<number | null>(null);
+  const victoryMatchTimesRef = useRef<number[]>([]);
   const captureInProgressRef = useRef(false);
   const countdownRef = useRef<number | null>(null);
   const [error, setError] = useState('');
@@ -72,6 +88,16 @@ export default function App() {
   const [qrCountdown, setQrCountdown] = useState(30);
 
   useEffect(() => { countdownRef.current = countdown; }, [countdown]);
+
+  useEffect(() => {
+    const enterFullscreen = () => {
+      if (!document.fullscreenElement) {
+        void document.documentElement.requestFullscreen().catch(() => undefined);
+      }
+    };
+    document.addEventListener('click', enterFullscreen);
+    return () => document.removeEventListener('click', enterFullscreen);
+  }, []);
 
   const setCamera = useCallback(async () => {
     const session = sessionRef.current;
@@ -101,7 +127,7 @@ export default function App() {
     // Camera Kit can reset the transform while attaching a new source.
     // Apply it again so the front-camera preview keeps mirror left/right behavior.
     source.setTransform(Transform2D.MirrorX);
-    await session.play();
+    await session.play('live');
   }, []);
 
   useEffect(() => {
@@ -142,19 +168,40 @@ export default function App() {
   }, [setCamera]);
 
   const createAndShareCapture = useCallback(async () => {
-    const canvas = canvasRef.current;
-    if (!canvas || captureInProgressRef.current) return;
+    const session = sessionRef.current;
+    if (!session || captureInProgressRef.current) return;
     captureInProgressRef.current = true;
     setVictoryHeld(false);
     try {
-      const publicUrl = await uploadCapture(canvas.toDataURL('image/jpeg', 0.92));
+      // The visible canvas stays on the live target. Start the separate capture
+      // target only for the exported image, so Lens-only UI is excluded when the
+      // Lens defines different live and capture outputs.
+      await session.play('capture');
+      await new Promise<void>((resolve) => requestAnimationFrame(() => { requestAnimationFrame(() => resolve()); }));
+      const publicUrl = await uploadCapture(session.output.capture.toDataURL('image/jpeg', 0.92));
       setQrCode(await QRCode.toDataURL(publicUrl, { width: 320, margin: 2, errorCorrectionLevel: 'Q' }));
       setQrCountdown(30);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to create the QR code.');
     } finally {
-      captureInProgressRef.current = false;
+      // Return immediately to the live render target after reading the photo.
+      try {
+        await session.pause('capture');
+        await session.play('live');
+      } finally {
+        captureInProgressRef.current = false;
+      }
     }
+  }, []);
+
+  const startCaptureCountdown = useCallback(() => {
+    if (countdownRef.current !== null || captureInProgressRef.current) return;
+    victoryStartRef.current = null;
+    victoryLastSeenRef.current = null;
+    victoryMatchTimesRef.current = [];
+    setVictoryHeld(false);
+    countdownRef.current = 3;
+    setCountdown(3);
   }, []);
 
   useEffect(() => {
@@ -174,9 +221,9 @@ export default function App() {
         const handTrackingOptions = {
           runningMode: 'VIDEO' as const,
           numHands: 1,
-          minHandDetectionConfidence: 0.5,
-          minHandPresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5,
+          minHandDetectionConfidence: 0.3,
+          minHandPresenceConfidence: 0.3,
+          minTrackingConfidence: 0.3,
         };
         try {
           handLandmarker = await HandLandmarker.createFromOptions(vision, {
@@ -192,24 +239,32 @@ export default function App() {
         const detectHands = () => {
           if (cancelled || !handLandmarker) return;
           const now = performance.now();
-          if (inputVideo.readyState >= 2 && inputVideo.currentTime !== lastVideoTime && now - lastDetectionTime >= 50) {
+          if (inputVideo.readyState >= 2 && inputVideo.currentTime !== lastVideoTime && now - lastDetectionTime >= 33) {
             lastVideoTime = inputVideo.currentTime;
             lastDetectionTime = now;
             const landmarks = handLandmarker.detectForVideo(inputVideo, now).landmarks[0];
             if (landmarks && isVictorySign(landmarks) && countdownRef.current === null && !captureInProgressRef.current) {
-              if (victoryStartRef.current === null) victoryStartRef.current = now;
+              // Count matching frames across a one-second hold instead of requiring
+              // every frame to match. This tolerates normal landmark flicker.
+              if (victoryStartRef.current === null || (victoryLastSeenRef.current !== null && now - victoryLastSeenRef.current > 350)) {
+                victoryStartRef.current = now;
+                victoryMatchTimesRef.current = [];
+              }
+              victoryLastSeenRef.current = now;
+              victoryMatchTimesRef.current = victoryMatchTimesRef.current.filter((time) => now - time <= 1000);
+              victoryMatchTimesRef.current.push(now);
               setVictoryHeld(true);
-              if (now - victoryStartRef.current >= 1000 && !captureInProgressRef.current) {
-                victoryStartRef.current = null;
-                setVictoryHeld(false);
-                // Update the ref immediately so the next camera frame cannot restore
-                // the Hold indicator while React is rendering the countdown.
-                countdownRef.current = 3;
-                setCountdown(3);
+              if (now - victoryStartRef.current >= 1000 && victoryMatchTimesRef.current.length >= 12) {
+                startCaptureCountdown();
               }
             } else if (countdownRef.current === null) {
-              victoryStartRef.current = null;
-              setVictoryHeld(false);
+              // Tolerate a few imperfect frames caused by blur or finger occlusion.
+              if (victoryLastSeenRef.current === null || now - victoryLastSeenRef.current > 350) {
+                victoryStartRef.current = null;
+                victoryLastSeenRef.current = null;
+                victoryMatchTimesRef.current = [];
+                setVictoryHeld(false);
+              }
             }
           }
           frameId = requestAnimationFrame(detectHands);
@@ -221,7 +276,7 @@ export default function App() {
     }
     void startHandTracking();
     return () => { cancelled = true; cancelAnimationFrame(frameId); handLandmarker?.close(); inputVideo.srcObject = null; };
-  }, [cameraStream]);
+  }, [cameraStream, startCaptureCountdown]);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -252,6 +307,9 @@ export default function App() {
       {victoryHeld && <div className="victory-indicator">✌️ Hold...</div>}
       {countdown !== null && <div className="capture-countdown">{countdown || '📸'}</div>}
       {qrCode && <aside className="qr-panel" aria-label="Capture QR code"><p>Scan to download</p><img src={qrCode} alt="QR code for your captured image" /><span>Closing in {qrCountdown}s</span></aside>}
+      <button className="backup-capture-button" onClick={startCaptureCountdown} disabled={lensLoading || countdown !== null} aria-label="Start photo countdown">
+        <img src={cameraIcon} alt="" />
+      </button>
 
     </main>
   );
